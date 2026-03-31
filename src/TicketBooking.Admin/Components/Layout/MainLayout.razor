@@ -1,4 +1,8 @@
 ﻿@inherits LayoutComponentBase
+@using TicketBooking.Admin.Infra
+@implements IDisposable
+@inject AuthEventsService AuthEvents
+@inject NavigationManager Nav
 
 <MudThemeProvider Theme="_theme" IsDarkMode="true" />
 <MudDialogProvider />
@@ -38,4 +42,19 @@
             Surface = "#1e1e2d"
         }
     };
+
+    protected override void OnInitialized()
+    {
+        AuthEvents.OnUnauthorizedDetected += HandleUnauthorized;
+    }
+
+    private void HandleUnauthorized()
+    {
+        InvokeAsync(() => Nav.NavigateTo("authentication/login", forceLoad: true));
+    }
+
+    public void Dispose()
+    {
+        AuthEvents.OnUnauthorizedDetected -= HandleUnauthorized;
+    }
 }

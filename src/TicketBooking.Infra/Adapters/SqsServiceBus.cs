@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Amazon.SQS;
 using Amazon.SQS.Model;
+using Microsoft.Extensions.Logging;
 using TicketBooking.Domain.Common;
 using TicketBooking.Domain.Interfaces;
 
@@ -33,26 +34,48 @@ public class SqsServiceBus : IServiceBus
         await _sqsClient.SendMessageAsync(request, ct);
     }
 
-    public async Task Subscribe<T>(Func<T, CancellationToken, Task<bool>> handler, CancellationToken cancelToken) where T : class
+    public async Task Subscribe<T>(Func<T, CancellationToken, Task<bool>> handler, ILogger logger, CancellationToken cancelToken)
+        where T : class
     {
         while (!cancelToken.IsCancellationRequested)
         {
-            var request = new ReceiveMessageRequest { QueueUrl = QueueUrl, WaitTimeSeconds = 20 };
-            var response = await _sqsClient.ReceiveMessageAsync(request, cancelToken);
-
-            if (response?.Messages is not { Count: > 0 })
-                continue;
-
-            foreach (var message in response.Messages)
+            try
             {
-                var dto = JsonSerializer.Deserialize<T>(message.Body, JsonDefaults.Options);
-                if (dto == null)
+                var request = new ReceiveMessageRequest { QueueUrl = QueueUrl, WaitTimeSeconds = 20, MaxNumberOfMessages = 5 };
+                var response = await _sqsClient.ReceiveMessageAsync(request, cancelToken);
+
+                if (response?.Messages is not { Count: > 0 })
                     continue;
 
-                if (await handler(dto, cancelToken))
+                foreach (var message in response.Messages)
                 {
-                    await _sqsClient.DeleteMessageAsync(QueueUrl, message.ReceiptHandle, cancelToken);
+                    try
+                    {
+                        var dto = JsonSerializer.Deserialize<T>(message.Body, JsonDefaults.Options);
+                        if (dto == null)
+                            continue;
+
+                        if (await handler(dto, cancelToken))
+                        {
+                            await _sqsClient.DeleteMessageAsync(QueueUrl, message.ReceiptHandle, cancelToken);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Error processing message {msg}", message.Body);
+                        throw;
+                    }
                 }
+            }
+            catch (AmazonSQSException ex)
+            {
+                logger.LogWarning("Error connecting to SQS: {Msg}", ex.Message);
+                await Task.Delay(5000, cancelToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogCritical(ex, "Fatal error consuming messages: {msg}", ex.Message);
+                await Task.Delay(1000, cancelToken);
             }
         }
     }

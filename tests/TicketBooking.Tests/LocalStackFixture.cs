@@ -40,8 +40,8 @@ public class LocalStackFixture : IAsyncLifetime
         await dynamoDb.CreateTableAsync(new CreateTableRequest
         {
             TableName = "Tickets",
-            AttributeDefinitions = [new("PK", ScalarAttributeType.S), new("SK", ScalarAttributeType.S)],
-            KeySchema = [new("PK", KeyType.HASH), new("SK", KeyType.RANGE)],
+            AttributeDefinitions = [new("pk", ScalarAttributeType.S), new("sk", ScalarAttributeType.S)],
+            KeySchema = [new("pk", KeyType.HASH), new("sk", KeyType.RANGE)],
             ProvisionedThroughput = new ProvisionedThroughput(5, 5)
         });
 
@@ -68,7 +68,7 @@ public class LocalStackFixture : IAsyncLifetime
       ""ResultPath"": ""$.updateResult"",
       ""Parameters"": {{
         ""TableName"": ""Tickets"",
-        ""Key"": {{ ""PK"": {{ ""S.$"": ""$.PK"" }}, ""SK"": {{ ""S.$"": ""$.SK"" }} }},
+        ""Key"": {{ ""pk"": {{ ""S.$"": ""$.pk"" }}, ""sk"": {{ ""S.$"": ""$.sk"" }} }},
         ""UpdateExpression"": ""SET #s = :cancelled"",
         ""ExpressionAttributeNames"": {{ ""#s"": ""Status"" }},
         ""ExpressionAttributeValues"": {{ "":cancelled"": {{ ""S"": ""Cancelled"" }} }}
@@ -80,7 +80,7 @@ public class LocalStackFixture : IAsyncLifetime
       ""Resource"": ""arn:aws:states:::sqs:sendMessage"",
       ""Parameters"": {{
         ""QueueUrl"": ""{queueUrl}"",
-        ""MessageBody"": {{ ""PK.$"": ""$.PK"", ""SK.$"": ""$.SK"", ""Status"": ""Cancelled"" }}
+        ""MessageBody"": {{ ""pk.$"": ""$.pk"", ""sk.$"": ""$.sk"", ""Status"": ""Cancelled"" }}
       }},
       ""End"": true
     }}

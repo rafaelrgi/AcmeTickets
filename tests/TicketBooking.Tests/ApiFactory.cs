@@ -22,8 +22,9 @@ namespace TicketBooking.Tests.Integration;
 
 public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly LocalStackContainer _localStack = new LocalStackBuilder("localstack/localstack:latest").Build();
+    private const string TicketWorkflowArn = "arn:aws:states:sa-east-1:000000000000:stateMachine:TicketBookingWorkflow";
 
+    private readonly LocalStackContainer _localStack = new LocalStackBuilder("localstack/localstack:latest").Build();
     private readonly RedisContainer _redisCache = new RedisBuilder("redis:alpine").Build();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -31,6 +32,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         try
         {
             var awsConnectionString = _localStack.GetConnectionString();
+            var ticketUpdatesQueueUrl = $"{awsConnectionString}/000000000000/TicketUpdatesQueue";
 
             builder.UseContentRoot(AppContext.BaseDirectory);
             builder.ConfigureAppConfiguration((context, config) =>
@@ -45,10 +47,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 var region = $"{SettingsAws.SectionName}:{nameof(SettingsAws.Region)}";
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    //["SqsSettings:QueueUrl"] = awsConnectionString + "/000000000000/TicketUpdatesQueue",
-                    [ticketWorkflowArn] = "arn:aws:states:sa-east-1:000000000000:stateMachine:TicketBookingWorkflow",
+                    [ticketWorkflowArn] = TicketWorkflowArn,
                     [region] = "sa-east-1",
-                    [ticketUpdatesQueue] = $"{awsConnectionString}/000000000000/TicketUpdatesQueue",
+                    [ticketUpdatesQueue] = ticketUpdatesQueueUrl,
                     [serviceUrl] = _localStack.GetConnectionString()
                 });
             });
@@ -70,7 +71,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                     var config = new AmazonSQSConfig { ServiceURL = awsConnectionString };
                     return new AmazonSQSClient(new BasicAWSCredentials("test", "test"), config);
                 });
-                var queueUrl = $"{awsConnectionString}/000000000000/TicketUpdatesQueue";
+                var queueUrl = ticketUpdatesQueueUrl;
                 services.AddSingleton<IServiceBus>(sp => new SqsServiceBus(sp.GetRequiredService<IAmazonSQS>(), queueUrl));
 
                 var redisConnectionString = _redisCache.GetConnectionString();
@@ -86,6 +87,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                     };
                     return new AmazonStepFunctionsClient(new BasicAWSCredentials("test", "test"), config);
                 });
+                services.AddSingleton<IWorkflows>(sp => new Workflows(sp.GetRequiredService<IAmazonStepFunctions>(), TicketWorkflowArn));
 
                 // Remove the real auth config
                 var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(AuthenticationOptions));
@@ -125,11 +127,11 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await client.CreateTableAsync(new CreateTableRequest
         {
             TableName = "Tickets",
-            KeySchema = new List<KeySchemaElement> { new("PK", KeyType.HASH), new("SK", KeyType.RANGE) },
+            KeySchema = new List<KeySchemaElement> { new("pk", KeyType.HASH), new("sk", KeyType.RANGE) },
             AttributeDefinitions = new List<AttributeDefinition>
             {
-                new("PK", ScalarAttributeType.S),
-                new("SK", ScalarAttributeType.S)
+                new("pk", ScalarAttributeType.S),
+                new("sk", ScalarAttributeType.S)
             },
             ProvisionedThroughput = new ProvisionedThroughput(5, 5)
         });
@@ -138,8 +140,8 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await client.CreateTableAsync(new CreateTableRequest
         {
             TableName = "Events",
-            AttributeDefinitions = [new("PK", ScalarAttributeType.S)],
-            KeySchema = [new("PK", KeyType.HASH)],
+            AttributeDefinitions = [new("pk", ScalarAttributeType.S)],
+            KeySchema = [new("pk", KeyType.HASH)],
             ProvisionedThroughput = new ProvisionedThroughput(5, 5)
         });
 

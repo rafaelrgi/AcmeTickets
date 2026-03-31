@@ -3,16 +3,16 @@
 # Create tables
 awslocal dynamodb create-table \
     --table-name Events \
-    --attribute-definitions AttributeName=PK,AttributeType=S \
-    --key-schema AttributeName=PK,KeyType=HASH \
+    --attribute-definitions AttributeName=pk,AttributeType=S \
+    --key-schema AttributeName=pk,KeyType=HASH \
     --billing-mode PAY_PER_REQUEST  || true
     # PK: Event#id | SK: Metadata
     # Attributes: EventId, TotalTickets
 
 awslocal dynamodb create-table \
     --table-name Tickets \
-    --attribute-definitions AttributeName=PK,AttributeType=S AttributeName=SK,AttributeType=S \
-    --key-schema AttributeName=PK,KeyType=HASH AttributeName=SK,KeyType=RANGE \
+    --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=sk,AttributeType=S \
+    --key-schema AttributeName=pk,KeyType=HASH AttributeName=sk,KeyType=RANGE \
     --billing-mode PAY_PER_REQUEST  || true
     # PK: Event#id | Ticket#id
     # Attributes: Status (Reserved/Confirmed), UserId, IsVip

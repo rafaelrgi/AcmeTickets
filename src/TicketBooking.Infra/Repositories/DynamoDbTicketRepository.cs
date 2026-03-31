@@ -22,15 +22,15 @@ public class DynamoDbTicketRepository : ITicketRepository
             TableName = "Tickets",
             Key = new Dictionary<string, AttributeValue>
             {
-                { "PK", new AttributeValue { S = $"EVENT#{ticket.EventId}" } },
-                { "SK", new AttributeValue { S = $"TICKET#{ticket.TicketId}" } }
+                { "pk", new AttributeValue { S = $"EVENT#{ticket.EventId}" } },
+                { "sk", new AttributeValue { S = $"TICKET#{ticket.TicketId}" } }
             },
-            UpdateExpression = "SET #s = :reserved, #c2 = :v2, UpdatedAt = :now",
+            UpdateExpression = "SET #s = :reserved, #c2 = :v2, updatedAt = :now",
             ConditionExpression = "attribute_not_exists(#s) OR #s = :available",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
-                { "#s", "Status" },
-                { "#c2", "IsVip" }
+                { "#s", "status" },
+                { "#c2", "isVip" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
@@ -59,12 +59,12 @@ public class DynamoDbTicketRepository : ITicketRepository
             TableName = "Tickets",
             Key = new Dictionary<string, AttributeValue>
             {
-                { "PK", new AttributeValue { S = $"EVENT#{ticket.EventId}" } },
-                { "SK", new AttributeValue { S = $"TICKET#{ticket.TicketId}" } }
+                { "pk", new AttributeValue { S = $"EVENT#{ticket.EventId}" } },
+                { "sk", new AttributeValue { S = $"TICKET#{ticket.TicketId}" } }
             },
-            UpdateExpression = "SET #s = :confirmed, UpdatedAt = :now",
+            UpdateExpression = "SET #s = :confirmed, updatedAt = :now",
             ConditionExpression = "#s = :reserved",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "Status" } },
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":confirmed", new AttributeValue { S = "Confirmed" } },
@@ -89,7 +89,7 @@ public class DynamoDbTicketRepository : ITicketRepository
         var request = new QueryRequest
         {
             TableName = TableName,
-            KeyConditionExpression = "PK = :pk",
+            KeyConditionExpression = "pk = :pk",
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":pk", new AttributeValue { S = $"EVENT#{eventId}" } }
@@ -100,17 +100,18 @@ public class DynamoDbTicketRepository : ITicketRepository
         var tickets = response.Items.Select(item =>
         {
             string GetS(string key) => item.TryGetValue(key, out var attr) ? attr.S : string.Empty;
-            return new Ticket
-            {
-                EventId = eventId,
-                TicketId = int.TryParse(GetS("SK").Replace("TICKET#", ""), out var id) ? id : 0,
-                Status = Enum.TryParse(GetS("Status"), out TicketStatus status) ? status : TicketStatus.Available,
-                IsVip = item.TryGetValue("IsVip", out var vipAttr) && (vipAttr.BOOL ?? false),
-                UpdatedAt = item.TryGetValue("UpdatedAt", out var dateAttr) &&
-                            DateTime.TryParse(dateAttr.S, out var date)
+            return Ticket.Create
+            (
+                eventId,
+                int.TryParse(GetS("sk").Replace("TICKET#", ""), out var id) ? id : 0,
+                item.TryGetValue("userId", out var userId) ? userId.S : "Unknown",
+                item.TryGetValue("isVip", out var vipAttr) && (vipAttr.BOOL ?? false),
+                Enum.TryParse(GetS("status"), out TicketStatus status) ? status : TicketStatus.Available,
+                item.TryGetValue("updatedAt", out var dateAttr) &&
+                DateTime.TryParse(dateAttr.S, out var date)
                     ? date
-                    : DateTime.UtcNow
-            };
+                    : default
+            ).Value;
         }).ToList();
 
         return tickets;
@@ -123,8 +124,8 @@ public class DynamoDbTicketRepository : ITicketRepository
             TableName = TableName,
             Key = new Dictionary<string, AttributeValue>
             {
-                { "PK", new AttributeValue { S = $"EVENT#{eventId}" } },
-                { "SK", new AttributeValue { S = $"TICKET#{ticketId}" } }
+                { "pk", new AttributeValue { S = $"EVENT#{eventId}" } },
+                { "sk", new AttributeValue { S = $"TICKET#{ticketId}" } }
             }
         };
 
@@ -132,18 +133,18 @@ public class DynamoDbTicketRepository : ITicketRepository
         if (!response.IsItemSet) return null;
 
         var item = response.Item;
-        var statusTxt = item.TryGetValue("Status", out var st) ? st.S : "Available";
+        var statusTxt = item.TryGetValue("status", out var st) ? st.S : "Available";
 
-        return new Ticket
-        {
-            EventId = eventId,
-            TicketId = ticketId,
-            Status = Enum.TryParse(statusTxt, out TicketStatus status)? status : TicketStatus.Available,
-            UserId = item.TryGetValue("UserId", out var userId) ? userId.S : "Unknown",
-            IsVip = item.TryGetValue("IsVip", out var vipAttr) && (vipAttr.BOOL ?? false),
-            UpdatedAt = item.TryGetValue("UpdatedAt", out var updated)
+        return Ticket.Create
+        (
+             eventId,
+             ticketId,
+             item.TryGetValue("userId", out var userId) ? userId.S : "Unknown",
+             item.TryGetValue("isVip", out var vipAttr) && (vipAttr.BOOL ?? false),
+             Enum.TryParse(statusTxt, out TicketStatus status) ? status : TicketStatus.Available,
+             item.TryGetValue("updatedAt", out var updated)
                 ? DateTime.Parse(updated.S)
-                : DateTime.UtcNow
-        };
+                : default
+        ).Value;
     }
 }

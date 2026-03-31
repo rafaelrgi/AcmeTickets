@@ -15,6 +15,7 @@ using TicketBooking.Infra.Settings;
 using Serilog;
 using Serilog.Enrichers.Span;
 using TicketBooking.Api.Workers;
+using TicketBooking.Application.Services;
 using TicketBooking.Domain.Common;
 
 try
@@ -42,7 +43,9 @@ try
         .ReadFrom.Services(services)
         .Enrich.FromLogContext()
         .Enrich.WithSpan()
+#if DEBUG
         .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{TraceId}] {Message:lj}{NewLine}{Exception}")
+#endif
         .WriteTo.OpenTelemetry(options =>
         {
             options.Endpoint = "http://localhost:4317";
@@ -53,11 +56,6 @@ try
             };
         })
     );
-
-    Log.Logger = new LoggerConfiguration()
-        .WriteTo.Console()
-        .CreateBootstrapLogger();
-    Log.Information("Starting Api...");
 
     builder.Services.AddSettings(builder.Configuration);
     var settingsUrls = builder.Configuration.GetSection(SettingsUrls.SectionName).Get<SettingsUrls>()!;
@@ -78,9 +76,16 @@ try
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-    builder.Services.AddSingleton<ITicketCacheService, TicketCacheService>();
+    // Cache
+    builder.Services.AddSingleton<ITicketCache, TicketCacheService>();
+    builder.Services.AddSingleton<IEventCache, EventCacheService>();
+    // Repositories
     builder.Services.AddScoped<IEventRepository, DynamoDbEventRepository>();
     builder.Services.AddScoped<ITicketRepository, DynamoDbTicketRepository>();
+    // Application
+    builder.Services.AddScoped<IEventAppService, EventAppService>();
+    builder.Services.AddScoped<ITicketAppService, TicketAppService>();
+
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
 

@@ -12,11 +12,11 @@
       "Parameters": {
         "TableName": "Tickets",
         "Key": {
-          "PK": { "S.$": "$.PK" },
-          "SK": { "S.$": "$.SK" }
+          "pk": { "S.$": "$.pk" },
+          "sk": { "S.$": "$.sk" }
         },
         "ConditionExpression": "#s <> :confirmed",
-        "ExpressionAttributeNames": { "#s": "Status" },
+        "ExpressionAttributeNames": { "#s": "status" },
         "ExpressionAttributeValues": {
           ":confirmed": { "S": "Confirmed" }
         }
@@ -49,9 +49,10 @@
       "Parameters": {
         "QueueUrl": "http://sqs.sa-east-1.localhost.localstack.cloud:4566/000000000000/TicketUpdatesQueue",
         "MessageBody": {
-          "PK.$": "$.PK",
-          "SK.$": "$.SK",
-          "Status": "Available"
+          "message": "Ticket",
+          "event.$": "$.pk",
+          "ticket.$": "$.sk",
+          "status": "Available"
         }
       },
       "End": true

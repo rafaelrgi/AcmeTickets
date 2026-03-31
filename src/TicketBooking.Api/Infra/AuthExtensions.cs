@@ -35,17 +35,17 @@ public static class AuthExtensions
             {
                 OnAuthenticationFailed = context =>
                 {
-                    Console.WriteLine("FALHA NA AUTENTICAÇÃO: " + context.Exception.Message);
+                    Console.WriteLine("AUTH FAIL: " + context.Exception.Message);
                     return Task.CompletedTask;
                 },
                 OnTokenValidated = context =>
                 {
-                    Console.WriteLine("TOKEN VALIDADO COM SUCESSO!");
+                    Console.WriteLine("TOKEN VALIDATED!");
                     return Task.CompletedTask;
                 },
                 OnForbidden = context =>
                 {
-                    Console.WriteLine("TOKEN VÁLIDO, MAS SEM PERMISSÃO (ROLE)");
+                    Console.WriteLine("TOKEN IS VALID BUT NO PERMISSIONS (ROLE)");
                     return Task.CompletedTask;
                 }
             };

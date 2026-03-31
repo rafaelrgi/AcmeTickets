@@ -20,14 +20,16 @@ public class DynamoDbEventRepository : IEventRepository
         var request = new ScanRequest
         {
             TableName = TableName,
-            ProjectionExpression = "PK"
+            ProjectionExpression = "pk"
         };
         var response = await _dynamoDb.ScanAsync(request);
 
-        return response.Items
-            .Select(i => i["PK"].S.Replace("EVENT#", ""))
+        var items = response.Items
+            .Select(i => i["pk"].S.Replace("EVENT#", ""))
             .Distinct()
+            .OrderBy(s => s)
             .ToList();
+        return items;
     }
 
     public async Task<Event?> GetEvent(string eventId)
@@ -37,7 +39,7 @@ public class DynamoDbEventRepository : IEventRepository
             TableName = TableName,
             Key = new Dictionary<string, AttributeValue>
             {
-                { "PK", new AttributeValue { S = $"EVENT#{eventId}" } },
+                { "pk", new AttributeValue { S = $"EVENT#{eventId}" } },
             }
         };
 
@@ -46,11 +48,7 @@ public class DynamoDbEventRepository : IEventRepository
 
         var item = response.Item;
 
-        return new Event
-        {
-            EventId = eventId,
-            TotalTickets = int.Parse(item["TotalTickets"].S),
-        };
+        return Event.Create(eventId, int.Parse(item["totalTickets"].S)).Value;
     }
 
     public async Task<EventStats?> GetDashboardStats(string eventId)
@@ -78,9 +76,9 @@ public class DynamoDbEventRepository : IEventRepository
     {
         var row = new Dictionary<string, AttributeValue>
         {
-            { "PK", new AttributeValue { S = $"EVENT#{evt.EventId}" } },
-            { "EventId", new AttributeValue { S = evt.EventId } },
-            { "TotalTickets", new AttributeValue { S = evt.TotalTickets.ToString() } },
+            { "pk", new AttributeValue { S = $"EVENT#{evt.EventId}" } },
+            { "eventId", new AttributeValue { S = evt.EventId } },
+            { "totalTickets", new AttributeValue { S = evt.TotalTickets.ToString() } },
         };
 
         var response = await _dynamoDb.PutItemAsync(new PutItemRequest
@@ -99,14 +97,14 @@ public class DynamoDbEventRepository : IEventRepository
             TableName = "Events",
             Key = new Dictionary<string, AttributeValue>
             {
-                { "PK", new AttributeValue { S = $"EVENT#{eventId}" } }
+                { "pk", new AttributeValue { S = $"EVENT#{eventId}" } }
             }
         };
         var response = await _dynamoDb.GetItemAsync(request);
         if (!response.IsItemSet) return 0;
 
         var item = response.Item;
-        if (!item.TryGetValue("TotalTickets", out var attr))
+        if (!item.TryGetValue("totalTickets", out var attr))
             return 0;
 
         var literalValue = attr.N ?? attr.S;
@@ -120,9 +118,9 @@ public class DynamoDbEventRepository : IEventRepository
         var countRequest = new QueryRequest
         {
             TableName = "Tickets",
-            KeyConditionExpression = "PK = :pk",
+            KeyConditionExpression = "pk = :pk",
             FilterExpression = "#s = :status",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "Status" } },
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":pk", new AttributeValue { S = $"EVENT#{eventId}" } },

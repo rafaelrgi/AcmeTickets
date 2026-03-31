@@ -1,13 +1,10 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using System.Text.Json;
-using Amazon.SQS.Model;
 using Microsoft.AspNetCore.SignalR;
 using TicketBooking.Api.Hubs;
 using TicketBooking.Application.Interfaces;
 using TicketBooking.Domain.Interfaces;
 using TicketBooking.Application.Dtos;
-using TicketBooking.Domain.Entities;
 
 namespace TicketBooking.Api.Workers;
 
@@ -15,16 +12,19 @@ public class TicketUpdateWorker : BackgroundService
 {
     private readonly IServiceBus _serviceBus;
     private readonly IHubContext<TicketHub> _hubContext;
-    private readonly ITicketCacheService _cache;
+    private readonly ITicketCache _ticketCache;
+    private readonly IEventCache _eventCache;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TicketUpdateWorker> _logger;
 
-    public TicketUpdateWorker(IServiceBus serviceBus, IHubContext<TicketHub> hubContext, ITicketCacheService cache,
+    public TicketUpdateWorker(IServiceBus serviceBus, IHubContext<TicketHub> hubContext,
+        ITicketCache ticketCache, IEventCache eventCache,
         IServiceScopeFactory scopeFactory, ILogger<TicketUpdateWorker> logger)
     {
         _serviceBus = serviceBus;
         _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
-        _cache = cache;
+        _ticketCache = ticketCache;
+        _eventCache = eventCache;
         _scopeFactory = scopeFactory;
         _logger = logger;
         _logger.LogInformation("Starting Worker {queueUrl}", _serviceBus.QueueUrl);
@@ -32,12 +32,10 @@ public class TicketUpdateWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        await _serviceBus.Subscribe<TicketMessageDto>(async (message, cancelToken) =>
+        await _serviceBus.Subscribe<BusMessageDto>(async (message, cancelToken) =>
         {
             try
             {
-                if (message.Message != "Ticket")
-                    return false;
                 return await ProcessMessage(message, cancelToken);
             }
             catch (Exception ex)
@@ -45,44 +43,46 @@ public class TicketUpdateWorker : BackgroundService
                 _logger.LogError("Worker Error: {error}", ex.Message);
                 return false;
             }
-        }, cancellationToken);
+        }, _logger, cancellationToken);
     }
 
-    public async Task<bool> ProcessMessage(TicketMessageDto message, CancellationToken cancelToken)
+    public async Task<bool> ProcessMessage(BusMessageDto messageDto, CancellationToken cancelToken)
     {
-        _logger.LogDebug("Worker Message: {message}", message.ToString());
+        _logger.LogDebug("Worker Message: {message}", messageDto.ToString());
 
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var ticketRepository = scope.ServiceProvider.GetRequiredService<ITicketRepository>();
-            await Task.WhenAll
-            (
-                _cache.InvalidateEventCache(message.EventId),
-                NotifyHub("TicketUpdated", message.EventId, cancelToken)
-            );
-            NotifyTelemetry(message);
+            var message = CleanMessage(messageDto);
+            if (message.Message == BusMessageType.Ticket)
+                await _ticketCache.Invalidate(message.Event);
+            else
+                await _eventCache.Invalidate(message.Event);
+
+            await NotifyHub(message.Message, message.Event, cancelToken);
+
+            if (message.Message == BusMessageType.Ticket)
+                NotifyTelemetry(message);
 
             return true;
         }
         catch (Exception e)
         {
-            _logger.LogError("Error processing message: {message} :: {error}", message.ToString(), e.Message);
+            _logger.LogError("Error processing message: {message} :: {error}", messageDto.ToString(), e.Message);
             return false;
             //UNDONE: DLQ
         }
     }
 
-    private void NotifyTelemetry(TicketMessageDto message)
+    private void NotifyTelemetry(BusMessageDto message)
     {
         Counter<long> counter = message.Status switch
         {
-            TicketStatus.Reserved => TelemetryConfig.ReservedCounter,
-            TicketStatus.Confirmed => TelemetryConfig.ConfirmedCounter,
-            TicketStatus.Available => TelemetryConfig.CanceledCounter,
+            "Reserved" => TelemetryConfig.ReservedCounter,
+            "Confirmed" => TelemetryConfig.ConfirmedCounter,
+            "Available" => TelemetryConfig.CanceledCounter,
             _ => throw new ArgumentOutOfRangeException()
         };
-        counter.Add(1, new TagList { { "event.name", message.EventId }, { "status", "success" } });
+        counter.Add(1, new TagList { { "event.name", message.Event }, { "status", "success" } });
         /*
         TelemetryConfig.TicketMeter.CreateObservableGauge("sqs.queue.size",
             () => GetQueueSizeFromLocalStack()
@@ -91,9 +91,22 @@ public class TicketUpdateWorker : BackgroundService
         */
     }
 
-    private async Task NotifyHub(string message, string eventId, CancellationToken stoppingToken)
+    private async Task NotifyHub(BusMessageType messageType, string eventId, CancellationToken stoppingToken)
     {
+        string message = messageType.ToString();
         _logger.LogDebug("NotifyHub: {message} {eventId}", message, eventId);
         await _hubContext.Clients.All.SendAsync(message, eventId, stoppingToken);
+    }
+
+    /// <summary>
+    /// Remove EVENT# and TICKET#, it is public static just for tests
+    /// </summary>
+    public static BusMessageDto CleanMessage(BusMessageDto message)
+    {
+        return message with
+        {
+            Event = message.Event.Replace("EVENT#", ""),
+            Ticket = message.Ticket.Replace("TICKET#", "")
+        };
     }
 }

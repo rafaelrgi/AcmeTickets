@@ -8,15 +8,10 @@ using TicketBooking.Domain.Interfaces;
 using TicketBooking.Application.Interfaces;
 using TicketBooking.Domain.Common;
 using TicketBooking.Domain.Constants;
+using TicketBooking.Domain.Exceptions;
 using TicketBooking.Domain.Settings;
 
 namespace TicketBooking.Api.Endpoints;
-
-//TODO: Dto
-public record ReservationRequest(string EventId, int TicketId, bool IsVip, string UserId);
-
-//TODO: Dto
-public record ConfirmationRequest(string EventId, int TicketId, string UserId);
 
 public static class TicketApi
 {
@@ -30,109 +25,44 @@ public static class TicketApi
         return app;
     }
 
-    private static async Task<IResult> GetTickets(string eventId, HttpContext context, ITicketRepository repository,
-        ITicketCacheService cache, ILoggerFactory loggerFactory)
+    private static async Task<IResult> GetTickets(string eventId, ITicketAppService ticketService) //HttpContext context
     {
-        var logger = loggerFactory.CreateLogger("TicketApi");
-        logger.LogDebug("GetTickets: {eventId}", eventId);
+        //var logger = loggerFactory.CreateLogger("TicketApi");
+        //logger.LogDebug("GetTickets: {eventId}", eventId);
         //logger.LogDebug("GetTickets: {eventId} :: Token: {authHeader}", eventId, context.Request.Headers["Authorization"]);
-
-        // cache
-        var cachedData = await cache.GetEventCache(eventId);
-        if (!string.IsNullOrEmpty(cachedData))
-            return Results.Ok(JsonSerializer.Deserialize<List<Ticket>>(cachedData));
-
-        // db
-        logger.LogDebug("CacheMiss: GetTickets {eventId}", eventId);
-        var tickets = await repository.GetTickets(eventId);
-        if (tickets.Count == 0)
-            return Results.NotFound();
-        await cache.SetEventCache(eventId, JsonSerializer.Serialize(tickets));
+        var tickets = await ticketService.GetTickets(eventId);
         return Results.Ok(tickets);
     }
 
-    private static async Task<IResult> ConfirmTicket(ConfirmationRequest request, ITicketRepository repository,
-        ITicketCacheService cache, ILoggerFactory loggerFactory, IServiceBus serviceBus, IOptions<SettingsUrls> settingsUrls
-    )
+    private static async Task<IResult> ConfirmTicket(TicketConfirmationRequest request,
+        ITicketAppService ticketService, ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger("TicketApi");
-
-        var ticket = await repository.GetTicket(request.EventId, request.TicketId);
-        if (ticket is not { Status: TicketStatus.Reserved })
-            return Results.NotFound("Ticket not found");
-
-        ticket.Status = TicketStatus.Confirmed;
-        ticket.UpdatedAt = DateTime.UtcNow;
-        var success = await repository.ConfirmTicket(ticket);
-        await cache.InvalidateEventCache(request.EventId);
-        await NotifyQueue(ticket, TicketStatus.Confirmed, serviceBus, logger);
-
-        return success
-            ? Results.Ok(new { message = "Confirmation saved" })
-            : Results.BadRequest("Error saving Confirmation");
+        try
+        {
+            var result = await ticketService.ConfirmTicket(request);
+            return !result.IsSuccess ? Results.BadRequest(result.ErrorMessage) : Results.Ok();
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "ConfirmTicket error");
+            return Results.InternalServerError();
+        }
     }
 
-    private static async Task<IResult> ReserveTicket(ReservationRequest request, ITicketRepository repository,
-        IEventRepository eventRepository, IAmazonStepFunctions stepFunctions, ITicketCacheService cache,
-        IServiceBus serviceBus, IOptions<SettingsAws> settingsAws, IOptions<SettingsUrls> settingsUrls,
-        ILoggerFactory loggerFactory)
+    private static async Task<IResult> ReserveTicket(TicketReservationRequest request, ITicketAppService ticketService,
+        IEventRepository eventRepository, ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger("TicketApi");
-
-        var evt = await eventRepository.GetEvent(request.EventId);
-        if (evt is null)
-            return Results.BadRequest("Event invalid");
-        if (request.TicketId >= evt.TotalTickets)
-            return Results.BadRequest("Ticket invalid");
-
-        var ticket = new Ticket
+        try
         {
-            EventId = request.EventId,
-            TicketId = request.TicketId,
-            UserId = request.UserId,
-            Status = TicketStatus.Reserved,
-            IsVip = request.IsVip,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var success = await repository.ReserveTicket(ticket);
-        await cache.InvalidateEventCache(request.EventId);
-        await NotifyQueue(ticket, TicketStatus.Reserved, serviceBus, logger);
-        var cancelFlow = await StartReservationFlow(stepFunctions, ticket, settingsAws, logger);
-
-        return success
-            ? Results.Ok(new { message = "Reservation saved" })
-            : Results.BadRequest("Error saving Reservation");
-    }
-
-    private static async Task NotifyQueue(Ticket ticket, TicketStatus status, IServiceBus serviceBus, ILogger logger)
-    {
-        var message = new TicketMessageDto
-        (
-            $"EVENT#{ticket.EventId}",
-            $"TICKET#{ticket.TicketId}",
-            status
-        );
-        await serviceBus.Publish(message);
-
-        logger.LogDebug("NotifyQueue {ticket.EventId}.{ticket.TicketId} = {status}", ticket.EventId, ticket.TicketId,
-            status);
-    }
-
-    private static async Task<StartExecutionResponse> StartReservationFlow(IAmazonStepFunctions stepFunctions, Ticket ticket,
-        IOptions<SettingsAws> settingsAws, ILogger logger)
-    {
-        var startRequest = new StartExecutionRequest
+            var result = await ticketService.ReserveTicket(request, eventRepository);
+            return !result.IsSuccess ? Results.BadRequest(result.ErrorMessage) : Results.Ok();
+        }
+        catch (Exception e)
         {
-            StateMachineArn = settingsAws.Value.TicketWorkflowArn,
-            Input = JsonSerializer.Serialize(new
-            {
-                PK = $"EVENT#{ticket.EventId}",
-                SK = $"TICKET#{ticket.TicketId}",
-                status = "Canceled"
-            }, JsonDefaults.Options) ?? "{}"
-        };
-        logger.LogDebug("StartReservationFlow {arn}", startRequest.StateMachineArn);
-        return await stepFunctions.StartExecutionAsync(startRequest);
+            logger.LogError(e, "ReserveTicket error");
+            return Results.InternalServerError();
+        }
     }
 }

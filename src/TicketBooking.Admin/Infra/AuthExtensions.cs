@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using TicketBooking.Domain.Settings;
+using Duende.AccessTokenManagement.OpenIdConnect;
 
 namespace TicketBooking.Admin.Infra;
 
@@ -36,6 +37,7 @@ public static class AuthExtensions
                 options.Scope.Add("profile");
                 options.Scope.Add("roles");
                 options.SaveTokens = true;
+                options.Scope.Add("offline_access"); //required to refresh tokens
 
                 options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
                 {
@@ -48,7 +50,8 @@ public static class AuthExtensions
         services.AddCascadingAuthenticationState();
         services.AddAuthorization();
 
-        services.AddTransient<AuthHandler>();
+        services.AddScoped<AuthEventsService>();
+        services.AddScoped<AuthHandler>();
 
         services.AddHttpClient("API", client =>
             {
@@ -57,6 +60,9 @@ public static class AuthExtensions
             .AddHttpMessageHandler<AuthHandler>();
 
         services.AddHeaderPropagation(options => { options.Headers.Add("Authorization"); });
+
+        services.AddDistributedMemoryCache();
+        services.AddOpenIdConnectAccessTokenManagement();
 
         return services;
     }

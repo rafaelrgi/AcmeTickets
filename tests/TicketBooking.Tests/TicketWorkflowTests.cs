@@ -62,35 +62,40 @@ public class TicketWorkflowTests : IClassFixture<LocalStackFixture>
     public void ServiceBusMessages_ShouldGetTranslatedCorrectly()
     {
         // Arrange
-        const string json1 = "{\"PK\": \"EVENT#Lok In Rio\",\"SK\": \"TICKET#2\",\"Status\": \"Reserved\"}";
-        const string json2 = "{\"PK\": \"EVENT#Loky In Rio\",\"SK\": \"TICKET#32\",\"Status\": \"Confirmed\"}";
-        const string json3 = "{\"PK\": \"EVENT#Lóke In Rio\",\"SK\": \"TICKET#64\",\"Status\": \"Available\"}";
+        const string json1 = "{\"message\":\"Ticket\",\"event\": \"EVENT#Lok In Rio\",\"ticket\": \"TICKET#2\",\"status\": \"Reserved\"}";
+        const string json2 = "{\"message\":\"Ticket\",\"event\": \"EVENT#Loky In Rio\",\"ticket\": \"TICKET#32\",\"status\": \"Confirmed\"}";
+        const string json3 = "{\"message\":\"Ticket\",\"event\": \"EVENT#Lóke In Rio\",\"ticket\": \"TICKET#64\",\"status\": \"Available\"}";
+        const string json4 = "{\"message\":\"Event\",\"event\": \"EVENT#Loki In Rio\"}";
 
         // Act
-        var msg1 = JsonSerializer.Deserialize<TicketMessageDto>(json1, JsonDefaults.Options);
-        var msg2 = JsonSerializer.Deserialize<TicketMessageDto>(json2, JsonDefaults.Options);
-        var msg3 = JsonSerializer.Deserialize<TicketMessageDto>(json3, JsonDefaults.Options);
+        var msg1 = TicketUpdateWorker.CleanMessage(JsonSerializer.Deserialize<BusMessageDto>(json1, JsonDefaults.Options)!);
+        var msg2 = TicketUpdateWorker.CleanMessage(JsonSerializer.Deserialize<BusMessageDto>(json2, JsonDefaults.Options)!);
+        var msg3 = TicketUpdateWorker.CleanMessage(JsonSerializer.Deserialize<BusMessageDto>(json3, JsonDefaults.Options)!);
+        var msg4 = TicketUpdateWorker.CleanMessage(JsonSerializer.Deserialize<BusMessageDto>(json4, JsonDefaults.Options)!);
 
         // Assert
         msg1.Should().NotBeNull();
-        msg1.EventId.Should().Be("Lok In Rio");
-        msg1.TicketId.Should().Be(2);
-        msg1.Status.Should().Be(TicketStatus.Reserved);
+        msg1.Event.Should().Be("Lok In Rio");
+        msg1.Ticket.Should().Be("2");
+        msg1.Status.Should().Be("Reserved");
         msg2.Should().NotBeNull();
-        msg2.EventId.Should().Be("Loky In Rio");
-        msg2.TicketId.Should().Be(32);
-        msg2.Status.Should().Be(TicketStatus.Confirmed);
+        msg2.Event.Should().Be("Loky In Rio");
+        msg2.Ticket.Should().Be("32");
+        msg2.Status.Should().Be("Confirmed");
         msg3.Should().NotBeNull();
-        msg3.EventId.Should().Be("Lóke In Rio");
-        msg3.TicketId.Should().Be(64);
-        msg3.Status.Should().Be(TicketStatus.Available);
+        msg3.Event.Should().Be("Lóke In Rio");
+        msg3.Ticket.Should().Be("64");
+        msg3.Status.Should().Be("Available");
+        msg4.Should().NotBeNull();
+        msg4.Event.Should().Be("Loki In Rio");
+
     }
 
     /*
     [Theory]
-    [InlineData("{\"PK\": \"EVENT#rock-in-rio\", \"SK\": \"TICKET#256\"}", 256)]
-    [InlineData("{\"PK\": \"EVENT#woodstock\", \"SK\": \"TICKET#666\"}", 666)]
-    [InlineData("{\"PK\": \"EVENT#rock-n-roll-circus\", \"SK\": \"TICKET#\"}", 0)]
+    [InlineData("{\"pk\": \"EVENT#rock-in-rio\", \"sk\": \"TICKET#256\"}", 256)]
+    [InlineData("{\"pk\": \"EVENT#woodstock\", \"sk\": \"TICKET#666\"}", 666)]
+    [InlineData("{\"pk\": \"EVENT#rock-n-roll-circus\", \"sk\": \"TICKET#\"}", 0)]
     public void Worker_ShouldExtractCorrectTicketId(string jsonInput, int expectedEventId)
     {
         // Act
@@ -111,16 +116,16 @@ public class TicketWorkflowTests : IClassFixture<LocalStackFixture>
         await ResetDatabase();
         await _fixture.DynamoDb.PutItemAsync("Tickets", new Dictionary<string, AttributeValue>
         {
-            { "PK", new AttributeValue(pk) },
-            { "SK", new AttributeValue(sk) },
-            { "Status", new AttributeValue("Reserved") }
+            { "pk", new AttributeValue(pk) },
+            { "sk", new AttributeValue(sk) },
+            { "status", new AttributeValue("Reserved") }
         }, TestContext.Current.CancellationToken);
 
         // Act
         await _fixture.StepFunctions.StartExecutionAsync(new StartExecutionRequest
         {
             StateMachineArn = _fixture.StateMachineArn,
-            Input = "{\"PK\": \"EVENT#rock-grande-do=sul\", \"SK\": \"TICKET#99\"}"
+            Input = "{\"pk\": \"EVENT#rock-grande-do=sul\", \"sk\": \"TICKET#99\"}"
         }, TestContext.Current.CancellationToken);
 
         // Assert
@@ -128,8 +133,8 @@ public class TicketWorkflowTests : IClassFixture<LocalStackFixture>
 
         var result = await _fixture.DynamoDb.GetItemAsync("Tickets", new Dictionary<string, AttributeValue>
         {
-            { "PK", new AttributeValue(pk) },
-            { "SK", new AttributeValue(sk) }
+            { "pk", new AttributeValue(pk) },
+            { "sk", new AttributeValue(sk) }
         }, TestContext.Current.CancellationToken);
 
         var queueUrl = await _fixture.Sqs.GetQueueUrlAsync("TicketUpdatesQueue", TestContext.Current.CancellationToken);
@@ -146,9 +151,8 @@ public class TicketWorkflowTests : IClassFixture<LocalStackFixture>
         // Arrange
         const string eventId = "rock-in-rio-1985";
         const int ticketId = 16;
-        string json = $"{{\"PK\": \"EVENT#{eventId}\", \"SK\": \"{ticketId}\",\"Status\": \"Reserved\"}}";
-        const string handleMock = "fake-handle-123";
-        var message = JsonSerializer.Deserialize<TicketMessageDto>(json, JsonDefaults.Options);
+        string json = $"{{\"event\": \"EVENT#{eventId}\", \"ticket\": \"{ticketId}\",\"status\": \"Reserved\"}}";
+        var message = JsonSerializer.Deserialize<BusMessageDto>(json, JsonDefaults.Options);
         message.Should().NotBeNull();
 
         await ResetDatabase();
@@ -162,21 +166,22 @@ public class TicketWorkflowTests : IClassFixture<LocalStackFixture>
 
         var mockRepo = new Mock<ITicketRepository>();
         mockRepo.Setup(r => r.GetTicket(eventId, ticketId))
-            .ReturnsAsync(new Ticket { EventId = eventId, TicketId = ticketId, Status = TicketStatus.Reserved });
+            .ReturnsAsync(Ticket.Create(eventId, ticketId, "T-800", true, TicketStatus.Reserved).Value);
 
         var mockSqs = new Mock<IAmazonSQS>();
         var worker = CreateTicketUpdateWorker(mockRepo, mockSqs, mockHubContext);
 
         // Act
-        await worker.ProcessMessage(message, TestContext.Current.CancellationToken);
+        await worker.ProcessMessage(TicketUpdateWorker.CleanMessage(message), TestContext.Current.CancellationToken);
 
         // Assert
-        // Check the "TicketUpdated" notification
+        // Check the "Ticket" notification
         mockClientProxy.Verify(
             client => client.SendCoreAsync(
-                "TicketUpdated",
+                "Ticket",
                 It.Is<object[]>(args => args[0].ToString() == eventId),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<CancellationToken>()
+                ),
             Times.Once);
     }
 
@@ -203,11 +208,12 @@ public class TicketWorkflowTests : IClassFixture<LocalStackFixture>
         var cts = new CancellationTokenSource();
 
         // Act
-        await subscriber.Subscribe<TicketMessageDto>(async (msg, ct) =>
+        var workerLogger = _loggerFactory.CreateLogger<TicketUpdateWorker>();
+        await subscriber.Subscribe<BusMessageDto>(async (msg, ct) =>
         {
             await cts.CancelAsync();
             return true;
-        }, cts.Token);
+        }, workerLogger, cts.Token);
 
         // Assert
         mockSqs.Verify(x => x.DeleteMessageAsync(
@@ -239,8 +245,8 @@ public class TicketWorkflowTests : IClassFixture<LocalStackFixture>
         var cacheLogger = _loggerFactory.CreateLogger<TicketCacheService>();
         IServiceBus serviceBus = new SqsServiceBus(mockSqs.Object, ticketUpdatesQueue);
 
-        var worker = new TicketUpdateWorker(serviceBus, mockHubContext.Object, new TicketCacheService(cache, cacheLogger),
-            mockScopeFactory.Object, workerLogger);
+        var worker = new TicketUpdateWorker(serviceBus, mockHubContext.Object,
+            new TicketCacheService(cache, cacheLogger), new EventCacheService(cache, cacheLogger), mockScopeFactory.Object, workerLogger);
         return worker;
     }
 
@@ -257,8 +263,8 @@ public class TicketWorkflowTests : IClassFixture<LocalStackFixture>
         await _fixture.DynamoDb.CreateTableAsync(new CreateTableRequest
         {
             TableName = "Tickets",
-            AttributeDefinitions = [new("PK", ScalarAttributeType.S), new("SK", ScalarAttributeType.S)],
-            KeySchema = [new("PK", KeyType.HASH), new("SK", KeyType.RANGE)],
+            AttributeDefinitions = [new("pk", ScalarAttributeType.S), new("sk", ScalarAttributeType.S)],
+            KeySchema = [new("pk", KeyType.HASH), new("sk", KeyType.RANGE)],
             ProvisionedThroughput = new ProvisionedThroughput(5, 5)
         });
     }

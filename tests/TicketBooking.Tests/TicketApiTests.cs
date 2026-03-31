@@ -73,15 +73,14 @@ public class TicketApiTests : IClassFixture<ApiFactory>
         var evt = await CreateEventApi(eventId, eventQuota);
         Assert.NotNull(evt);
 
-        var ticket = new Ticket
-        {
-            EventId = eventId,
-            TicketId = 128,
-            UserId = "Hall-900",
-            IsVip = true,
-            Status = status,
-            UpdatedAt = DateTime.UtcNow
-        };
+        var ticket = Ticket.Create
+        (
+            eventId,
+            128,
+            "Hall-900",
+            true,
+            status,
+            default).Value;
         var content = new StringContent(JsonSerializer.Serialize(ticket), Encoding.UTF8, "application/json");
 
         // Act
@@ -115,7 +114,7 @@ public class TicketApiTests : IClassFixture<ApiFactory>
 
         bool notified = false;
         var hubConnection = _factory.CreateHubConnection();
-        hubConnection?.On<object>("TicketUpdated", (data) => notified = true);
+        hubConnection?.On<object>("Ticket", (data) => notified = true);
         await hubConnection?.StartAsync(TestContext.Current.CancellationToken)!;
 
         // Act
@@ -156,15 +155,15 @@ public class TicketApiTests : IClassFixture<ApiFactory>
         var evt = await CreateEventApi(eventId, eventQuota);
         Assert.NotNull(evt);
 
-        var ticket = new Ticket
-        {
-            EventId = eventId,
-            TicketId = ticketIdReserve,
-            UserId = "Gort",
-            IsVip = true,
-            Status = TicketStatus.Confirmed,
-            UpdatedAt = DateTime.UtcNow
-        };
+        var ticket = Ticket.Create
+        (
+            eventId,
+            ticketIdReserve,
+            "Gort",
+            true,
+            TicketStatus.Confirmed,
+            DateTime.UtcNow
+        ).Value;
         var content = new StringContent(JsonSerializer.Serialize(ticket), Encoding.UTF8, "application/json");
         var responseReserve =
             await _client.PostAsync(ApiRoutes.Tickets.ReserveTicket, content, TestContext.Current.CancellationToken);
@@ -187,15 +186,15 @@ public class TicketApiTests : IClassFixture<ApiFactory>
         await ResetDatabaseAndCache();
         const string eventId = "Loki in rio";
 
-        var ticket = new Ticket
-        {
-            EventId = eventId,
-            TicketId = 1,
-            UserId = "Gort",
-            IsVip = true,
-            Status = TicketStatus.Reserved,
-            UpdatedAt = DateTime.UtcNow
-        };
+        var ticket = Ticket.Create
+        (
+            eventId,
+            1,
+            "Gort",
+            true,
+            TicketStatus.Reserved,
+            DateTime.UtcNow
+        ).Value;
         var content = new StringContent(JsonSerializer.Serialize(ticket), Encoding.UTF8, "application/json");
 
         // Act
@@ -207,10 +206,15 @@ public class TicketApiTests : IClassFixture<ApiFactory>
 
         var responseGet =
             await _client.GetAsync($"{ApiRoutes.Tickets.GetTickets}{eventId}", TestContext.Current.CancellationToken);
+        var tickets =
+            await responseGet.Content.ReadFromJsonAsync<List<Ticket>>(cancellationToken: TestContext.Current.CancellationToken,
+                options: JsonDefaults.Options
+            );
 
         // Assert
         Assert.False(responseReserve.IsSuccessStatusCode);
-        Assert.False(responseGet.IsSuccessStatusCode);
+        Assert.NotNull(tickets);
+        Assert.Empty(tickets);
     }
 
     [Fact]
@@ -224,15 +228,14 @@ public class TicketApiTests : IClassFixture<ApiFactory>
         var evt = await CreateEventApi(eventId, eventQuota);
         Assert.NotNull(evt);
 
-        var ticket = new Ticket
-        {
-            EventId = eventId,
-            TicketId = eventQuota + 1,
-            UserId = "Gort",
-            IsVip = true,
-            Status = TicketStatus.Confirmed,
-            UpdatedAt = DateTime.UtcNow
-        };
+        var ticket = Ticket.Create
+        (
+            eventId,
+            eventQuota + 1,
+            "Gort",
+            true,
+            TicketStatus.Confirmed
+        ).Value;
         var content = new StringContent(JsonSerializer.Serialize(ticket), Encoding.UTF8, "application/json");
 
         // Act
@@ -242,12 +245,20 @@ public class TicketApiTests : IClassFixture<ApiFactory>
             content,
             TestContext.Current.CancellationToken);
 
-        var responseGet =
-            await _client.GetAsync($"{ApiRoutes.Tickets.GetTickets}{eventId}", TestContext.Current.CancellationToken);
+        var responseGet = await _client.GetAsync
+        (
+            $"{ApiRoutes.Tickets.GetTickets}{eventId}", TestContext.Current.CancellationToken
+        );
+        var tickets = await responseGet.Content.ReadFromJsonAsync<List<Ticket>>
+        (
+            cancellationToken: TestContext.Current.CancellationToken,
+            options: JsonDefaults.Options
+        );
 
         // Assert
         Assert.False(responseReserve.IsSuccessStatusCode);
-        Assert.False(responseGet.IsSuccessStatusCode);
+        Assert.NotNull(tickets);
+        Assert.Empty(tickets);
     }
 
     [Fact]
@@ -267,15 +278,15 @@ public class TicketApiTests : IClassFixture<ApiFactory>
         await SeedDatabase(eventId, confirmedTicket, "Confirmed");
 
         // Act
-        var ticket = new Ticket
-        {
-            EventId = eventId,
-            TicketId = freeTicket,
-            UserId = "Gort",
-            IsVip = true,
-            Status = TicketStatus.Confirmed,
-            UpdatedAt = DateTime.UtcNow
-        };
+        var ticket = Ticket.Create
+        (
+            eventId,
+            freeTicket,
+            "Gort",
+            true,
+            TicketStatus.Confirmed,
+            DateTime.UtcNow
+        ).Value;
         var content = new StringContent(JsonSerializer.Serialize(ticket), Encoding.UTF8, "application/json");
         var responseFree =
             await _client.PostAsync(ApiRoutes.Tickets.ReserveTicket, content, TestContext.Current.CancellationToken);
@@ -298,11 +309,7 @@ public class TicketApiTests : IClassFixture<ApiFactory>
 
     private async Task<Event?> CreateEventApi(string eventId, int eventQuota)
     {
-        var row = new Event
-        {
-            EventId = eventId,
-            TotalTickets = eventQuota
-        };
+        var row = Event.Create(eventId, eventQuota).Value;
         var content = new StringContent(JsonSerializer.Serialize(row), Encoding.UTF8, "application/json");
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("TestScheme");
         var response = await _client.PutAsync(
@@ -315,7 +322,8 @@ public class TicketApiTests : IClassFixture<ApiFactory>
         response = await _client.GetAsync($"{ApiRoutes.Events.GetEvent}{eventId}", TestContext.Current.CancellationToken);
         if (!response.IsSuccessStatusCode)
             return null;
-        row = await response.Content.ReadFromJsonAsync<Event>(TestContext.Current.CancellationToken);
+        row = await response.Content.ReadFromJsonAsync<Event>(options: JsonDefaults.Options,
+            TestContext.Current.CancellationToken);
         return row;
     }
 
@@ -323,10 +331,10 @@ public class TicketApiTests : IClassFixture<ApiFactory>
     {
         var ticket = new Dictionary<string, AttributeValue>
         {
-            { "PK", new AttributeValue { S = $"EVENT#{eventId}" } },
-            { "SK", new AttributeValue { S = $"TICKET#{ticketId}" } },
-            { "EventId", new AttributeValue { S = eventId } },
-            { "Status", new AttributeValue { S = status } }
+            { "pk", new AttributeValue { S = $"EVENT#{eventId}" } },
+            { "sk", new AttributeValue { S = $"TICKET#{ticketId}" } },
+            { "eventId", new AttributeValue { S = eventId } },
+            { "status", new AttributeValue { S = status } }
         };
 
         await _dynamoDb.PutItemAsync(new PutItemRequest
@@ -339,8 +347,8 @@ public class TicketApiTests : IClassFixture<ApiFactory>
     private async Task ResetDatabaseAndCache()
     {
         await _factory.ClearCache();
-        await ClearTable("Tickets", "PK", "SK");
-        await ClearTable("Events", "PK");
+        await ClearTable("Tickets", "pk", "sk");
+        await ClearTable("Events", "pk");
     }
 
     private async Task ClearTable(string tableName, string partitionKey, string? sortKey = null)

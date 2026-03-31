@@ -7,6 +7,7 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using TicketBooking.Domain.Common;
 using TicketBooking.Domain.Constants;
 using TicketBooking.Domain.Entities;
 using TicketBooking.Domain.Settings;
@@ -162,7 +163,8 @@ public class EventApiTests : IClassFixture<ApiFactory>
         // Assert
         response.EnsureSuccessStatusCode();
         var events =
-            await response.Content.ReadFromJsonAsync<List<string>>(cancellationToken: TestContext.Current.CancellationToken);
+            await response.Content.ReadFromJsonAsync<List<string>>(options: JsonDefaults.Options,
+                cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(events);
         Assert.NotEmpty(events);
@@ -180,11 +182,7 @@ public class EventApiTests : IClassFixture<ApiFactory>
         // Arrange
         await ResetDatabaseAndCache();
 
-        var evt = new Event
-        {
-            EventId = "Loki in rio",
-            TotalTickets = 1024,
-        };
+        var evt = Event.Create("Loki in rio", 1024).Value;
         var content = new StringContent(JsonSerializer.Serialize(evt), Encoding.UTF8, "application/json");
 
         // Act
@@ -216,24 +214,25 @@ public class EventApiTests : IClassFixture<ApiFactory>
         {
             await _dynamoDb.PutItemAsync("Tickets", new Dictionary<string, AttributeValue>
             {
-                { "PK", new AttributeValue { S = $"EVENT#{eventId}" } },
-                { "SK", new AttributeValue { S = $"TICKET#{i:D3}" } },
-                { "Status", new AttributeValue { S = "Reserved" } }
+                { "pk", new AttributeValue { S = $"EVENT#{eventId}" } },
+                { "sk", new AttributeValue { S = $"TICKET#{i:D3}" } },
+                { "status", new AttributeValue { S = "Reserved" } }
             }, TestContext.Current.CancellationToken);
         }
 
         // "Confirm" 1 ticket
         await _dynamoDb.PutItemAsync("Tickets", new Dictionary<string, AttributeValue>
         {
-            { "PK", new AttributeValue { S = $"EVENT#{eventId}" } },
-            { "SK", new AttributeValue { S = $"TICKET#{666:D3}" } },
-            { "Status", new AttributeValue { S = "Confirmed" } }
+            { "pk", new AttributeValue { S = $"EVENT#{eventId}" } },
+            { "sk", new AttributeValue { S = $"TICKET#{666:D3}" } },
+            { "status", new AttributeValue { S = "Confirmed" } }
         }, TestContext.Current.CancellationToken);
 
         // Act
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("TestScheme");
         var response = await _client.GetAsync($"{ApiRoutes.Events.GetStats}{eventId}", TestContext.Current.CancellationToken);
-        var stats = await response.Content.ReadFromJsonAsync<EventStats>(TestContext.Current.CancellationToken);
+        var stats = await response.Content.ReadFromJsonAsync<EventStats>(JsonDefaults.Options,
+            TestContext.Current.CancellationToken);
 
         // Assert
         Assert.NotNull(stats);
@@ -250,7 +249,7 @@ public class EventApiTests : IClassFixture<ApiFactory>
             TableName = "Events",
             Key = new Dictionary<string, AttributeValue>
             {
-                { "PK", new AttributeValue { S = $"EVENT#{eventId}" } }
+                { "pk", new AttributeValue { S = $"EVENT#{eventId}" } }
             }
         };
         var dbResponse = await _dynamoDb.GetItemAsync(getRequest);
@@ -259,22 +258,22 @@ public class EventApiTests : IClassFixture<ApiFactory>
 
         var item = dbResponse.Item;
         string GetS(string key) => item.TryGetValue(key, out var attr) ? attr.S : string.Empty;
-        var evt = new Event
-        {
-            EventId = GetS("EventId"),
-            TotalTickets = int.TryParse(GetS("TotalTickets"), out var total) ? total : 0,
-        };
+        var evt = Event.Create
+        (
+            GetS("eventId"),
+            int.TryParse(GetS("totalTickets"), out var total) ? total : 0
+        );
 
-        return evt;
+        return evt.Value;
     }
 
     private async Task SeedDatabase(string eventId, int totalTickets)
     {
         var evt = new Dictionary<string, AttributeValue>
         {
-            { "PK", new AttributeValue { S = $"EVENT#{eventId}" } },
-            { "EventId", new AttributeValue { S = eventId } },
-            { "TotalTickets", new AttributeValue { S = totalTickets.ToString() } },
+            { "pk", new AttributeValue { S = $"EVENT#{eventId}" } },
+            { "eventId", new AttributeValue { S = eventId } },
+            { "totalTickets", new AttributeValue { S = totalTickets.ToString() } },
         };
 
         await _dynamoDb.PutItemAsync(new PutItemRequest
@@ -298,8 +297,8 @@ public class EventApiTests : IClassFixture<ApiFactory>
         await _dynamoDb.CreateTableAsync(new CreateTableRequest
         {
             TableName = "Events",
-            AttributeDefinitions = [new("PK", ScalarAttributeType.S)],
-            KeySchema = [new("PK", KeyType.HASH)],
+            AttributeDefinitions = [new("pk", ScalarAttributeType.S)],
+            KeySchema = [new("pk", KeyType.HASH)],
             ProvisionedThroughput = new ProvisionedThroughput(5, 5)
         });
     }

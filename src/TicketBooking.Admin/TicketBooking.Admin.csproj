@@ -7,6 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Duende.AccessTokenManagement" Version="4.2.0" />
+    <PackageReference Include="Duende.AccessTokenManagement.OpenIdConnect" Version="4.2.0" />
     <PackageReference Include="Keycloak.AuthServices.Authentication" Version="2.6.1" />
     <PackageReference Include="Keycloak.AuthServices.Authorization" Version="2.6.1" />
     <PackageReference Include="Keycloak.AuthServices.Sdk" Version="2.6.1" />

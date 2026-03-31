@@ -68,6 +68,8 @@ public static class AwsExtensions
 
         var queueUrl = settingsAws.TicketUpdatesQueue  ?? "";
         services.AddSingleton<IServiceBus>(sp => new SqsServiceBus(sp.GetRequiredService<IAmazonSQS>(), queueUrl));
+        var ticketArn = settingsAws.TicketWorkflowArn ?? "";
+        services.AddSingleton<IWorkflows>(sp => new Workflows(sp.GetRequiredService<IAmazonStepFunctions>(), ticketArn));
 
         return services;
     }
