@@ -1,4 +1,4 @@
-# 🎟️ TicketBooking: High-Performance Distributed Event System
+# 🎟️ Acme Tickets: High-Performance Distributed Event System
 A robust, enterprise-grade event booking platform built with .NET 9, Clean Architecture and Microservices, showcasing a modern cloud-native approach using AWS services and an advanced Observability stack.
 
 <p align="center">

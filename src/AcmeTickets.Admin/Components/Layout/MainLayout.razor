@@ -1,0 +1,60 @@
+﻿@inherits LayoutComponentBase
+@using AcmeTickets.Admin.Infra
+@implements IDisposable
+@inject AuthEventsService AuthEvents
+@inject NavigationManager Nav
+
+<MudThemeProvider Theme="_theme" IsDarkMode="true" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Color="Color.Surface">
+        <MudText Typo="Typo.h6">AcmeTickets.Admin</MudText>
+        <MudSpacer />
+    </MudAppBar>
+    <MudDrawer Open="true" Elevation="2" Variant="@DrawerVariant.Responsive">
+        <NavMenu />
+    </MudDrawer>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="my-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+
+@code {
+    private MudTheme _theme = new MudTheme()
+    {
+        PaletteDark = new PaletteDark()
+        {
+            Primary = Colors.Blue.Lighten1,
+            AppbarBackground = "#1a1a27",
+            Background = "#121212",
+            DrawerBackground = "#1a1a27",
+            Surface = "#1e1e2d"
+        }
+    };
+
+    protected override void OnInitialized()
+    {
+        AuthEvents.OnUnauthorizedDetected += HandleUnauthorized;
+    }
+
+    private void HandleUnauthorized()
+    {
+        InvokeAsync(() => Nav.NavigateTo("authentication/login", forceLoad: true));
+    }
+
+    public void Dispose()
+    {
+        AuthEvents.OnUnauthorizedDetected -= HandleUnauthorized;
+    }
+}
