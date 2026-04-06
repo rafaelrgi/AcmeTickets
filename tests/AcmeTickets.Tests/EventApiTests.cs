@@ -50,7 +50,7 @@ public class EventApiTests : IClassFixture<ApiFactory>
         // Act
         var response = await _client.GetAsync($"{ApiRoutes.Events.GetEvent}{eventId}", TestContext.Current.CancellationToken);
 
-        // Assert
+        // Assert 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 

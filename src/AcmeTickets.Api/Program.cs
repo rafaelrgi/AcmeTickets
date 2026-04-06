@@ -133,8 +133,9 @@ try
     app.UseWebSockets();
     app.MapHub<TicketHub>(settingsUrls.TicketHub);
 
-    app.MapEventEndpoints();
-    app.MapTicketEndpoints();
+    app
+        .MapEventEndpoints()
+        .MapTicketEndpoints();
 
     app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
